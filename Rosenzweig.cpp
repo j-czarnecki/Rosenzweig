@@ -12,16 +12,19 @@ typedef int (*f_equation_system)(double, const double*, double*, void*);
 typedef int (*f_jacobian)(double, const double*, double*, double*, void*);
 
 //Global data initialization
-const int N_EQUATIONS = 2;
-const int N_PARAMS = 5;
+const int N_EQUATIONS = 5;
+const int N_PARAMS = 8;
 const int N_EXTREMA = 100;
+const double BETA_CONVERGENCE_TIME= 5e4;
 
+double beta_convergence_counter = 0;
 // std::vector<std::vector<double>> maxima(N_EQUATIONS);
 // std::vector<std::vector<double>> minima(N_EQUATIONS);
 std::array<std::array<double, N_EXTREMA>, N_EQUATIONS> maxima;
 std::array<std::array<double, N_EXTREMA>, N_EQUATIONS> minima;
 std::array<int, N_EQUATIONS> maxima_counter {};
 std::array<int, N_EQUATIONS> minima_counter {};
+
 
 
 int function(double t, const double y[], double dydt[], void* params){
@@ -37,6 +40,30 @@ int function(double t, const double y[], double dydt[], void* params){
     dydt[1] = y[1]*(1 - alpha_11*y[1]) - y[0]*p*y[1]*beta/(1 + b*beta*y[1]);//resource 1
     return GSL_SUCCESS;
 }
+
+int function_double_resource_adaptive(double t, const double y[], double dydt[], void* params){
+
+    (void)(t);
+    double* params_arr = (double*) params;
+    double p = params_arr[0];
+    double m = params_arr[1];
+    double b = params_arr[2];
+    double alpha_11 = params_arr[3];
+    double alpha_12 = params_arr[4];
+    double alpha_21 = params_arr[5];
+    double alpha_22 = params_arr[6];
+    double v = params_arr[7];
+
+    dydt[0] = p*y[0]*(y[3]*y[1] + (1-y[3])*y[2])/(1 + b*(y[3]*y[1] + (1 - y[3])*y[2])) - m*y[0]; //consumer
+    dydt[1] = y[1]*(1 - alpha_11*y[1] - alpha_12*y[2]) - (p*y[1]*y[3]*y[0])/(1 + b*(y[3]*y[1] + (1 - y[3])*y[2])); //resource 1 
+    dydt[2] = y[2]*(1 - alpha_21*y[1] - alpha_22*y[2]) - (p*y[2]*(1 - y[3])*y[0])/(1 + b*(y[3]*y[1] + (1 - y[3])*y[2])); //resource 1 
+    dydt[3] = y[4]; //beta
+    dydt[4] = v*p*y[0]*(y[1] - y[2])/pow(1 + b*(y[3]*y[1] + (1 - y[3])*y[2]) , 2); //gamma (helper function)
+
+    return GSL_SUCCESS;
+}
+
+
 
 int jacobian(double t, const double y[], double* dfdy, double dfdt[], void* params){
     (void)(t);
@@ -68,6 +95,22 @@ bool check_convergence(const double& conv, const double* y, double y_prev[][2]) 
         }
     return conv_flag;
 }
+
+bool check_beta_convergence(const double& beta_conv, const double* y, double y_prev[][2], double dt){
+
+    if (abs(y[3]) < beta_conv || abs(y[3] - 1) < beta_conv ){
+        beta_convergence_counter += dt;
+    }
+    else {
+        beta_convergence_counter = 0;   
+    }
+
+    if (beta_convergence_counter >= BETA_CONVERGENCE_TIME){
+        return true;
+    }
+    return false;
+}
+
 
 void check_extremum(const double* y, double y_prev[][2]){
     for (int i = 0; i < N_EQUATIONS; i++){
@@ -136,16 +179,23 @@ void solve_system(double dt, double t_max, double t0, double* y0, double eps_abs
         status = gsl_odeiv2_driver_apply (driver,  &t, (i+1)*dt, y); //perform evolution
         
         //std::cout << "Evolution is at time " << t << std::endl;
-        OutputTimeDependence << t << "\t" << y[0] << "\t" << y[1] << std::endl;
+        OutputTimeDependence << t << "\t" << y[0] << "\t" << y[1] << "\t" << y[2] << "\t" << y[3] << "\t" << y[4] << std::endl;
 
         if (status != GSL_SUCCESS) {
             printf ("error: driver returned %d at time %f\n", status, t);
             break;
         }
 
+        //Check if beta [0,1]
+        if (y[3] < 0)
+            y[3] = 0.;
+        else if (y[3] > 1)
+            y[3] = 1;
+
         check_extremum(y, y_prev);
 
-        conv_flag = check_convergence(conv, y, y_prev);
+        //conv_flag = check_convergence(conv, y, y_prev);
+        conv_flag = check_beta_convergence(conv, y, y_prev, dt);
         if (conv_flag){
             std::cout << "Convergence reached" << std::endl;
             break;
@@ -182,12 +232,13 @@ int main(int argc, char *argv[]){
     // double dt = 1e-2;
     // double t_max = 1e4;
     double t0 = 0;
-    double eps_abs = 1e-8;
-    double eps_rel = 1e-8;
-    double convergence = 1e-7;
+    double eps_abs = 1e-5;
+    double eps_rel = 1e-5;
+    double convergence = 1e-3;
 
-    double y0[N_EQUATIONS] = {0.4, 0.7};
-    double params[N_PARAMS] {3. , 1., 1., 2.0, 1.};
+    double y0[N_EQUATIONS] = {};
+    // params = {p , m , b, alpha_11, alpha_12, alpha_21, alpha_22, v}
+    double params[N_PARAMS] {};
 
     double dt = std::stod(argv[1]);
     double t_max = std::stod(argv[2]);
@@ -195,7 +246,6 @@ int main(int argc, char *argv[]){
         y0[i] = std::stod(argv[3 + i]);
     }
 
-    // params = {p , m , beta, b, alpha_11}
     for (int i = 0; i < N_PARAMS; i++){
         params[i] = std::stod(argv[3 + N_EQUATIONS + i]);
     }
@@ -206,7 +256,7 @@ int main(int argc, char *argv[]){
     std::ofstream OutputTimeDependence(filename);
     std::string filename_final = path + "/FinalState.dat";
     std::ofstream OutputCycleOrNode(filename_final);
-    solve_system(dt, t_max, t0, y0, eps_abs, eps_rel, params, convergence, OutputTimeDependence, OutputCycleOrNode, function, jacobian);
+    solve_system(dt, t_max, t0, y0, eps_abs, eps_rel, params, convergence, OutputTimeDependence, OutputCycleOrNode, function_double_resource_adaptive, NULL);
 
     return 0;
 }
