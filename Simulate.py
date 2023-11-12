@@ -7,6 +7,7 @@ import subprocess
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
 import math
+import random 
 
 
 N_EQUATIONS = 5
@@ -128,46 +129,109 @@ def get_final_phase(run_cmd, m_pos):
     else: 
         final_phase[m_pos] = 'Unstable'
 
+
 def main():
+    n_consumers = 3
+    n_resources = 3
     dt = 1e-1
-    t_max = 2e6
-    C0 = 0.4
-    R1_0 = 0.71
-    R2_0 = 0.7 
-    beta0 = 0.49
-    gamma0 = 0.
+    t_max = 1e6
+    C0 = [0.4]*n_consumers
+    R0 = []
+    for i in range(n_resources):
+        R0.append(0.7 + random.uniform(-0.05, 0.05))
     p = 3.
     m = 0.2
     b = 2.
-    alpha_11 = 0.95
-    alpha_12 = 0.065
-    alpha_21 = 0.065
-    alpha_22 = 0.95
-    v = 80e-8
+    alpha = np.zeros((n_resources, n_resources))
+    for i in range(n_resources):
+        alpha[i,i] = 0.9
+        alpha[i,(i+1)%n_resources] = 0.065
+        alpha[(i+1)%n_resources, i] = 0.065
+    #To delete interacion between boundary resources
+    alpha[n_resources - 1,0] = alpha[0, n_resources - 1] = 0
+    
+    beta = np.zeros((n_consumers, n_resources))
+    for i in range(n_consumers):
+        beta[i,i] = random.uniform(0.475, 0.525)
+        beta[i, (i+1)%n_resources] = beta[i,i]
 
-    for alpha_11 in alpha_tab:
-        alpha_22 = alpha_11
-        v_pos = 0
-        for v in v_tab:
-            current_workdir = os.getcwd()
-            path = f"/mnt/HDD1TB/Rosenzweig/RUN_alpha{alpha_11:.3f}_v{v*1e8:.3f}"
-            if not os.path.exists(path):
-                os.mkdir(path) 
+    current_workdir = os.getcwd()
+    path = f"./Output_data"
+ 
+    with open(path + "/beta.dat", "w") as beta_file:
+        print("#Beta matrix defines coefficient of i-th consumer taking advantage of j-th resource", file = beta_file)
+        print(beta, file = beta_file)
+    
+    with open(path + "/alpha.dat", "w") as alpha_file:
+        print("#Alpha matrix defines interactions between i-th and j-th resource", file = alpha_file)
+        print(alpha, file = alpha_file)
 
-            run_with_arguments = [current_workdir + '/a.out'] + [str(dt), str(t_max), str(C0),\
-                                            str(R1_0), str(R2_0), str(beta0), str(gamma0), str(p), str(m), str(b), \
-                                            str(alpha_11), str(alpha_12), str(alpha_21), str(alpha_22), str(v), path]
-            print(run_with_arguments)
-            simulation = subprocess.run(run_with_arguments)
-            plot_time_dependence(run_with_arguments)
-            plot_phase(run_with_arguments)
-            #get_final_states(run_with_arguments, v_pos)
-            get_final_phase(run_with_arguments, v_pos)
-            v_pos += 1
-        #plot_final_states(run_with_arguments)
-        #clear_final_states()
-        plot_final_phase(run_with_arguments)
-        clear_final_phase()
+    alpha = alpha.flatten()
+    beta = beta.flatten()
+
+    if not os.path.exists(path):
+        os.mkdir(path) 
+    arguments = []
+    arguments.append(str(dt))
+    arguments.append(str(t_max))
+    for i in range(n_consumers):
+        arguments.append(str(C0[i]))
+    for i in range(n_resources):
+        arguments.append(str(R0[i]))
+    arguments.append(str(p))
+    arguments.append(str(m))
+    arguments.append(str(b))
+    for i in range(len(alpha)):
+        arguments.append(str(alpha[i]))
+    for i in range(len(beta)):
+        arguments.append(str(beta[i]))
+    arguments.append(path)
+
+    run_with_arguments = [current_workdir + '/a.out'] + arguments
+    print(run_with_arguments)
+    simulation = subprocess.run(run_with_arguments)
+
+
+# def main():
+#     dt = 1e-1
+#     t_max = 2e6
+#     C0 = 0.4
+#     R1_0 = 0.71
+#     R2_0 = 0.7 
+#     beta0 = 0.49
+#     gamma0 = 0.
+#     p = 3.
+#     m = 0.2
+#     b = 2.
+#     alpha_11 = 0.95
+#     alpha_12 = 0.065
+#     alpha_21 = 0.065
+#     alpha_22 = 0.95
+#     v = 80e-8
+
+#     for alpha_11 in alpha_tab:
+#         alpha_22 = alpha_11
+#         v_pos = 0
+#         for v in v_tab:
+#             current_workdir = os.getcwd()
+#             path = f"/mnt/HDD1TB/Rosenzweig/RUN_alpha{alpha_11:.3f}_v{v*1e8:.3f}"
+#             if not os.path.exists(path):
+#                 os.mkdir(path) 
+
+#             run_with_arguments = [current_workdir + '/a.out'] + [str(dt), str(t_max), str(C0),\
+#                                             str(R1_0), str(R2_0), str(beta0), str(gamma0), str(p), str(m), str(b), \
+#                                             str(alpha_11), str(alpha_12), str(alpha_21), str(alpha_22), str(v), path]
+#             print(run_with_arguments)
+#             simulation = subprocess.run(run_with_arguments)
+#             plot_time_dependence(run_with_arguments)
+#             plot_phase(run_with_arguments)
+#             #get_final_states(run_with_arguments, v_pos)
+#             get_final_phase(run_with_arguments, v_pos)
+#             v_pos += 1
+#         #plot_final_states(run_with_arguments)
+#         #clear_final_states()
+#         plot_final_phase(run_with_arguments)
+#         clear_final_phase()
 
 
 if __name__ == "__main__":
