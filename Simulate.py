@@ -8,6 +8,9 @@ import matplotlib.collections as mcoll
 import matplotlib.path as mpath
 import math
 import random 
+import Generate_equations
+import multiprocessing
+import time
 
 
 N_EQUATIONS = 5
@@ -130,50 +133,75 @@ def get_final_phase(run_cmd, m_pos):
         final_phase[m_pos] = 'Unstable'
 
 
-def main():
-    n_consumers = 3
-    n_resources = 3
+def single_run(n_cells, output_path):
+    print(f"Inside single run")
+    n_consumers = n_cells
+    n_resources = n_cells
+
+    base_directory = os.getcwd()
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)  
+
+    SRC_dir = os.path.join(base_directory, "SRC")
+    cp_arguments = ["cp", "-r", SRC_dir, os.path.join(base_directory,output_path)]
+    cp_src = subprocess.run(cp_arguments)
+    #make sure that previous process managed to run
+    #with proper Equations.h file
+    Generate_equations.generate_equations(n_consumers, n_resources, os.path.join(output_path, "SRC"))
+    make_cmd = ["make", "-C", os.path.join(output_path, "SRC")]
+    make = subprocess.run(make_cmd) #Always after generating equations new .x should be built
+
     dt = 1e-1
-    t_max = 1e6
-    C0 = [0.4]*n_consumers
-    R0 = []
-    for i in range(n_resources):
-        R0.append(0.7 + random.uniform(-0.05, 0.05))
+    t_max = 1e3
     p = 3.
     m = 0.2
     b = 2.
+    T_beta_update = 1e10
+    #output_path = f"OutputData_N" + str(n_cells)
+
+    C0 = [0.4]*n_consumers #all consumers start with same population
+    R0 = []
+    for i in range(n_resources):
+        R0.append(0.7 + random.uniform(-0.05, 0.05)) # Slightly varying resource population
+    
+    #Interaction between resources
+    # alpha_ij denotes interaction between i-th and j-th resource
     alpha = np.zeros((n_resources, n_resources))
     for i in range(n_resources):
         alpha[i,i] = 0.9
         alpha[i,(i+1)%n_resources] = 0.065
         alpha[(i+1)%n_resources, i] = 0.065
     #To delete interacion between boundary resources
+    #We have to do this, since with periodic BC
+    #This is the same resource
     alpha[n_resources - 1,0] = alpha[0, n_resources - 1] = 0
     
+
+    #Interaction between consumers nad resources
+    #Beta matrix defines coefficient of i-th consumer taking advantage of j-th resource
     beta = np.zeros((n_consumers, n_resources))
     for i in range(n_consumers):
-        beta[i,i] = random.uniform(0.475, 0.525)
+        beta[i,i] = np.random.uniform(0.475,0.525)
         beta[i, (i+1)%n_resources] = beta[i,i]
 
-    current_workdir = os.getcwd()
-    path = f"./Output_data"
- 
-    with open(path + "/beta.dat", "w") as beta_file:
+    with open(os.path.join(output_path, "beta.dat"), "w") as beta_file:
         print("#Beta matrix defines coefficient of i-th consumer taking advantage of j-th resource", file = beta_file)
         print(beta, file = beta_file)
     
-    with open(path + "/alpha.dat", "w") as alpha_file:
+    with open(os.path.join(output_path, "alpha.dat"), "w") as alpha_file:
         print("#Alpha matrix defines interactions between i-th and j-th resource", file = alpha_file)
         print(alpha, file = alpha_file)
 
+    #This is needed to easily append to argument list
     alpha = alpha.flatten()
     beta = beta.flatten()
 
-    if not os.path.exists(path):
-        os.mkdir(path) 
+    #Creating arguments list.
+    #Order is crucial, since it is passed via argv to C++ program
     arguments = []
     arguments.append(str(dt))
     arguments.append(str(t_max))
+    arguments.append(str(T_beta_update))
     for i in range(n_consumers):
         arguments.append(str(C0[i]))
     for i in range(n_resources):
@@ -185,13 +213,26 @@ def main():
         arguments.append(str(alpha[i]))
     for i in range(len(beta)):
         arguments.append(str(beta[i]))
-    arguments.append(path)
+    arguments.append(output_path)
 
-    run_with_arguments = [current_workdir + '/a.out'] + arguments
+    if not os.path.exists(arguments[-1]):
+        os.mkdir(arguments[-1]) 
+    run_with_arguments = [os.path.join(output_path, "SRC", 'Rosenzweig.x')] + arguments
     print(run_with_arguments)
     simulation = subprocess.run(run_with_arguments)
 
+    return simulation
 
+
+if __name__ == "__main__":
+    #First element specifies number of chain cells (Resource - Consumer pairs)
+    #Second element of tuple specifies output directory
+    #N processes specifies how many processes can run simultaneously    
+    input_tab = [(i, f"RUN_n" + str(i)) for i in range(2,11)]
+    N_processes = 8
+
+    with multiprocessing.Pool(processes=N_processes) as pool:
+        result = pool.starmap(single_run, input_tab)
 # def main():
 #     dt = 1e-1
 #     t_max = 2e6
@@ -234,8 +275,6 @@ def main():
 #         clear_final_phase()
 
 
-if __name__ == "__main__":
-    main()
 
 
 
