@@ -152,7 +152,7 @@ def single_run(n_cells, output_path):
     make = subprocess.run(make_cmd) #Always after generating equations new .x should be built
 
     dt = 1e-1
-    t_max = 1e3
+    t_max = 1e6
     p = 3.
     m = 0.2
     b = 2.
@@ -168,12 +168,13 @@ def single_run(n_cells, output_path):
     # alpha_ij denotes interaction between i-th and j-th resource
     alpha = np.zeros((n_resources, n_resources))
     for i in range(n_resources):
-        alpha[i,i] = 0.9
+        alpha[i,i] = 0.95
         alpha[i,(i+1)%n_resources] = 0.065
         alpha[(i+1)%n_resources, i] = 0.065
     #To delete interacion between boundary resources
     #We have to do this, since with periodic BC
     #This is the same resource
+        
     alpha[n_resources - 1,0] = alpha[0, n_resources - 1] = 0
     
 
@@ -183,6 +184,7 @@ def single_run(n_cells, output_path):
     for i in range(n_consumers):
         beta[i,i] = np.random.uniform(0.475,0.525)
         beta[i, (i+1)%n_resources] = beta[i,i]
+    beta[n_consumers - 1, 0] = 0.
 
     with open(os.path.join(output_path, "beta.dat"), "w") as beta_file:
         print("#Beta matrix defines coefficient of i-th consumer taking advantage of j-th resource", file = beta_file)
@@ -228,8 +230,8 @@ if __name__ == "__main__":
     #First element specifies number of chain cells (Resource - Consumer pairs)
     #Second element of tuple specifies output directory
     #N processes specifies how many processes can run simultaneously    
-    input_tab = [(i, f"RUN_n" + str(i)) for i in range(2,11)]
-    N_processes = 8
+    input_tab = [(i, f"/mnt/HDD1TB/Rosenzweig/RUN_n" + str(i) + "_Stiff") for i in [3,4,5,10,25]]
+    N_processes = 5
 
     with multiprocessing.Pool(processes=N_processes) as pool:
         result = pool.starmap(single_run, input_tab)
